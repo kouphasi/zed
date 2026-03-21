@@ -1411,8 +1411,7 @@ unsafe extern "C" {
     pub(super) static kTISPropertyUnicodeKeyLayoutData: CFStringRef;
     pub(super) static kTISPropertyInputSourceID: CFStringRef;
     pub(super) static kTISPropertyLocalizedName: CFStringRef;
-    pub(super) static kTISPropertyInputSourceType: CFStringRef;
-    pub(super) static kTISTypeKeyboardLayout: CFStringRef;
+    pub(super) static kTISPropertyInputSourceIsASCIICapable: CFStringRef;
 }
 
 mod security {

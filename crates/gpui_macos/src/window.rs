@@ -1,7 +1,7 @@
 use crate::{
     BoolExt, DisplayLink, MacDisplay, NSRange, NSStringExt, TISCopyCurrentKeyboardInputSource,
-    TISGetInputSourceProperty, events::platform_input_from_native, kTISPropertyInputSourceType,
-    kTISTypeKeyboardLayout, ns_string, renderer,
+    TISGetInputSourceProperty, events::platform_input_from_native,
+    kTISPropertyInputSourceIsASCIICapable, ns_string, renderer,
 };
 #[cfg(any(test, feature = "test-support"))]
 use anyhow::Result;
@@ -36,7 +36,7 @@ use gpui::{
 use image::RgbaImage;
 
 use core_foundation::base::{CFRelease, CFTypeRef};
-use core_foundation_sys::base::CFEqual;
+use core_foundation_sys::number::{CFBooleanGetValue, CFBooleanRef};
 use core_graphics::display::{CGDirectDisplayID, CGPoint, CGRect};
 use ctor::ctor;
 use futures::channel::oneshot;
@@ -1756,23 +1756,28 @@ extern "C" fn handle_key_up(this: &Object, _: Sel, native_event: id) {
 //   - In vim mode with `jj` bound to `vim::NormalBefore` in insert mode, typing 'j i' with
 //     Japanese IME should produce "じ" (ji), not "jい"
 
-/// Returns true if the current keyboard input source is an IME (e.g. Japanese, Korean, Chinese)
-/// rather than a regular keyboard layout.
+/// Returns true if the current keyboard input source is a composition-based IME
+/// (e.g. Japanese Hiragana, Korean, Chinese Pinyin) that produces non-ASCII output.
+///
+/// ASCII-capable sources (English keyboard, Japanese Roman mode) return false, so that
+/// multi-stroke keybindings like `jj` continue to work in those modes.
 unsafe fn is_ime_input_source_active() -> bool {
     unsafe {
         let source = TISCopyCurrentKeyboardInputSource();
         if source.is_null() {
             return false;
         }
-        let source_type = TISGetInputSourceProperty(
+        let is_ascii = TISGetInputSourceProperty(
             source,
-            kTISPropertyInputSourceType as *const c_void,
+            kTISPropertyInputSourceIsASCIICapable as *const c_void,
         );
         CFRelease(source as CFTypeRef);
-        if source_type.is_null() {
+        if is_ascii.is_null() {
             return false;
         }
-        CFEqual(source_type as CFTypeRef, kTISTypeKeyboardLayout as CFTypeRef) == 0
+        // A non-ASCII-capable source (e.g. Hiragana, Korean) uses character composition,
+        // so keys must be sent to the IME first.
+        !CFBooleanGetValue(is_ascii as CFBooleanRef)
     }
 }
 
