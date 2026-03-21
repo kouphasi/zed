@@ -1,6 +1,7 @@
 use crate::{
-    BoolExt, DisplayLink, MacDisplay, NSRange, NSStringExt, events::platform_input_from_native,
-    ns_string, renderer,
+    BoolExt, DisplayLink, MacDisplay, NSRange, NSStringExt, TISCopyCurrentKeyboardInputSource,
+    TISGetInputSourceProperty, events::platform_input_from_native, kTISPropertyInputSourceType,
+    kTISTypeKeyboardLayout, ns_string, renderer,
 };
 #[cfg(any(test, feature = "test-support"))]
 use anyhow::Result;
@@ -34,6 +35,8 @@ use gpui::{
 #[cfg(any(test, feature = "test-support"))]
 use image::RgbaImage;
 
+use core_foundation::base::{CFRelease, CFTypeRef};
+use core_foundation_sys::base::CFEqual;
 use core_graphics::display::{CGDirectDisplayID, CGPoint, CGRect};
 use ctor::ctor;
 use futures::channel::oneshot;
@@ -1750,6 +1753,29 @@ extern "C" fn handle_key_up(this: &Object, _: Sel, native_event: id) {
 //   - in vim mode `option-4`  should go to end of line (same as $)
 //  Japanese (Romaji) layout:
 //   - type `a i left down up enter enter` should create an unmarked text "愛"
+//   - In vim mode with `jj` bound to `vim::NormalBefore` in insert mode, typing 'j i' with
+//     Japanese IME should produce "じ" (ji), not "jい"
+
+/// Returns true if the current keyboard input source is an IME (e.g. Japanese, Korean, Chinese)
+/// rather than a regular keyboard layout.
+unsafe fn is_ime_input_source_active() -> bool {
+    unsafe {
+        let source = TISCopyCurrentKeyboardInputSource();
+        if source.is_null() {
+            return false;
+        }
+        let source_type = TISGetInputSourceProperty(
+            source,
+            kTISPropertyInputSourceType as *const c_void,
+        );
+        CFRelease(source as CFTypeRef);
+        if source_type.is_null() {
+            return false;
+        }
+        CFEqual(source_type as CFTypeRef, kTISTypeKeyboardLayout as CFTypeRef) == 0
+    }
+}
+
 extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: bool) -> BOOL {
     let window_state = unsafe { get_window_state(this) };
     let mut lock = window_state.as_ref().lock();
@@ -1801,7 +1827,24 @@ extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: 
             // and keys with function, as the input handler swallows them.
             // and keys with platform (Cmd), so that Cmd+key events (e.g. Cmd+`) are not
             // consumed by the IME on non-QWERTY / dead-key layouts.
+            // We also send printable keys to the IME first when an IME input source (e.g. Japanese,
+            // Korean, Chinese) is active and the input handler accepts text input. This prevents
+            // multi-stroke keybindings like `jj` from intercepting keys that the IME should compose
+            // (e.g. typing 'ji' should produce 'じ', not 'jい'). If the IME doesn't handle the key,
+            // it calls `doCommandBySelector:` which routes it back to keybinding matching.
+            let is_ime_printable_key = !is_composing
+                && key_down_event.keystroke.key_char.is_some()
+                && !key_down_event.keystroke.modifiers.control
+                && !key_down_event.keystroke.modifiers.function
+                && !key_down_event.keystroke.modifiers.platform
+                && unsafe { is_ime_input_source_active() }
+                && with_input_handler(this, |input_handler| {
+                    input_handler.query_accepts_text_input()
+                })
+                .unwrap_or(false);
+
             if is_composing
+                || is_ime_printable_key
                 || (key_down_event.keystroke.key_char.is_none()
                     && !key_down_event.keystroke.modifiers.control
                     && !key_down_event.keystroke.modifiers.function
