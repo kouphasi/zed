@@ -1844,7 +1844,7 @@ extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: 
                 && !key_down_event.keystroke.modifiers.platform
                 && unsafe { is_ime_input_source_active() }
                 && with_input_handler(this, |input_handler| {
-                    input_handler.query_accepts_text_input()
+                    input_handler.query_prefers_ime_for_printable_keys()
                 })
                 .unwrap_or(false);
 
