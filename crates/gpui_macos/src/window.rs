@@ -1,8 +1,8 @@
 use crate::{
     BoolExt, DisplayLink, MacDisplay, NSRange, NSStringExt, TISCopyCurrentKeyboardInputSource,
     TISGetInputSourceProperty, events::platform_input_from_native,
-    kTISPropertyInputSourceIsASCIICapable, kTISPropertyInputSourceType,
-    kTISTypeKeyboardInputMode, ns_string, renderer,
+    kTISPropertyInputSourceIsASCIICapable, kTISPropertyInputSourceType, kTISTypeKeyboardInputMode,
+    ns_string, renderer,
 };
 #[cfg(any(test, feature = "test-support"))]
 use anyhow::Result;
@@ -1774,19 +1774,19 @@ unsafe fn is_ime_input_source_active() -> bool {
             return false;
         }
 
-        let source_type = TISGetInputSourceProperty(
-            source,
-            kTISPropertyInputSourceType as *const c_void,
-        );
+        let source_type =
+            TISGetInputSourceProperty(source, kTISPropertyInputSourceType as *const c_void);
         let is_input_mode = !source_type.is_null()
-            && CFEqual(source_type as CFTypeRef, kTISTypeKeyboardInputMode as CFTypeRef) != 0;
+            && CFEqual(
+                source_type as CFTypeRef,
+                kTISTypeKeyboardInputMode as CFTypeRef,
+            ) != 0;
 
         let is_ascii = TISGetInputSourceProperty(
             source,
             kTISPropertyInputSourceIsASCIICapable as *const c_void,
         );
-        let is_ascii_capable =
-            !is_ascii.is_null() && CFBooleanGetValue(is_ascii as CFBooleanRef);
+        let is_ascii_capable = !is_ascii.is_null() && CFBooleanGetValue(is_ascii as CFBooleanRef);
 
         CFRelease(source as CFTypeRef);
 
